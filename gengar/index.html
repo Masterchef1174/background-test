@@ -2,20 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-
-  <!-- Xenon Edge / embedded webviews behave better without viewport-fit=cover -->
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Allow embedding in widget/iframe contexts -->
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src * 'self' data: blob: 'unsafe-inline' 'unsafe-eval';
-                 media-src * data: blob:;
-                 img-src * data: blob:;
-                 style-src * 'self' 'unsafe-inline';
-                 script-src * 'self' 'unsafe-inline' 'unsafe-eval';
-                 frame-ancestors *;">
-
   <title>Gengar Clock</title>
+
+  <!-- Widget / iframe safe CSP -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src * data: blob: 'unsafe-inline' 'unsafe-eval';
+          img-src * data: blob:;
+          media-src * data: blob:;
+          style-src * 'unsafe-inline';
+          script-src * 'unsafe-inline' 'unsafe-eval';
+          frame-ancestors *;
+        ">
 
   <style>
     :root{
@@ -45,46 +44,49 @@
       --video-blur: 0px;
     }
 
-    /* Make the root sizing bulletproof for embedded webviews */
     html, body {
       width: 100%;
       height: 100%;
       margin: 0;
-      padding: 0;
       overflow: hidden;
       background: #000;
     }
 
-    /* Hard wrapper so "100%" always resolves correctly */
     #widget {
       position: fixed;
       inset: 0;
       width: 100%;
       height: 100%;
-      overflow: hidden;
       background: #000;
     }
 
+    /* PURE GRADIENT FALLBACK (always visible) */
     .stage{
       position:absolute;
       inset:0;
       width:100%;
       height:100%;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      background: radial-gradient(1200px 800px at 30% 20%, #2a0f3a 0%, #000 55%, #000 100%);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+
+      background:
+        radial-gradient(900px 700px at 25% 18%, #3a1b52 0%, transparent 55%),
+        radial-gradient(600px 500px at 70% 65%, #1a0f2e 0%, transparent 60%),
+        linear-gradient(180deg, #0b0612 0%, #000 100%);
     }
 
-    /* Background video */
     video{
       position:absolute;
       inset:0;
       width:100%;
       height:100%;
       object-fit:cover;
-      filter: brightness(var(--video-dim)) saturate(var(--video-sat)) contrast(var(--video-contrast)) blur(var(--video-blur));
+      filter: brightness(var(--video-dim)) saturate(var(--video-sat))
+              contrast(var(--video-contrast)) blur(var(--video-blur));
       transform: scale(1.01);
       z-index: 0;
     }
+
+    .video-hidden{ display:none !important; }
 
     .hud{
       position:absolute;
@@ -95,20 +97,16 @@
       display:flex;
       flex-direction:column;
       gap:8px;
-      align-items:flex-start;
 
       padding: var(--plate-pad-y) var(--plate-pad-x);
       border-radius: var(--plate-radius);
       background: var(--plate);
       border: 1px solid var(--plate-border);
 
-      /* Backdrop filter can be flaky in widgets, so we keep it but it’s optional */
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
-
-      box-shadow: 0 10px 30px rgba(0,0,0,.22);
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
       user-select:none;
-      touch-action: manipulation;
     }
 
     .time{
@@ -132,22 +130,20 @@
       -webkit-text-stroke: 0.6px rgba(0,0,0,.25);
     }
 
-    /* Debug badge */
     .badge{
       position:absolute;
       right:12px;
       bottom:12px;
       z-index: 3;
-      font-size: 12px;
-      padding: 8px 10px;
-      border-radius: 999px;
-      background: rgba(0,0,0,.45);
-      border: 1px solid rgba(255,255,255,.18);
-      color: rgba(255,255,255,.9);
+      font-size:12px;
+      padding:8px 12px;
+      border-radius:999px;
+      background:rgba(0,0,0,.55);
+      border:1px solid rgba(255,255,255,.18);
+      color:rgba(255,255,255,.9);
       display:none;
     }
 
-    /* Tiny fallback if the widget webview doesn't like backdrop-filter */
     @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
       .hud { background: rgba(0,0,0,.35); }
     }
@@ -157,51 +153,23 @@
 <body>
   <div id="widget">
     <div class="stage">
+
       <video id="bg" autoplay muted loop playsinline preload="auto">
-        <!-- If Xenon Edge has weird base paths, swap this to an ABSOLUTE URL -->
         <source src="https://masterchef1174.github.io/background-test/gengar.mp4" type="video/mp4" />
       </video>
 
-      <div class="hud" id="hud" aria-label="Clock">
+      <div class="hud" id="hud">
         <div class="time" id="time">--:--</div>
         <div class="date" id="date">---</div>
       </div>
 
-      <div class="badge" id="badge">Video failed to load (gengar.mp4)</div>
+      <div class="badge" id="badge"></div>
     </div>
   </div>
 
   <script>
     const elTime = document.getElementById('time');
     const elDate = document.getElementById('date');
-
-    function formatTime(d){
-      try {
-        return new Intl.DateTimeFormat(undefined, { hour:'numeric', minute:'2-digit' }).format(d);
-      } catch(e) {
-        let h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        h = h % 12; if (h === 0) h = 12;
-        return `${h}:${m} ${ampm}`;
-      }
-    }
-
-    function formatDate(d){
-      try {
-        return new Intl.DateTimeFormat(undefined, { weekday:'long', month:'long', day:'numeric' }).format(d);
-      } catch(e) {
-        return d.toDateString();
-      }
-    }
-
-    function tick(){
-      const now = new Date();
-      elTime.textContent = formatTime(now);
-      elDate.textContent = formatDate(now);
-    }
-    tick();
-    setInterval(tick, 1000);
-
     const bg = document.getElementById('bg');
     const badge = document.getElementById('badge');
 
@@ -209,29 +177,64 @@
       badge.textContent = msg;
       badge.style.display = 'block';
     }
+    function hideBadge(){ badge.style.display = 'none'; }
 
-    // Stronger video diagnostics for embedded webviews
-    bg.addEventListener('error', () => showBadge('Video failed to load (gengar.mp4)'));
-    bg.addEventListener('stalled', () => showBadge('Video stalled (network/webview)'));
-    bg.addEventListener('abort', () => showBadge('Video aborted'));
+    function formatTime(d){
+      try {
+        return new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(d);
+      } catch {
+        let h=d.getHours(), m=String(d.getMinutes()).padStart(2,'0');
+        const a=h>=12?'PM':'AM'; h=h%12||12;
+        return `${h}:${m} ${a}`;
+      }
+    }
 
-    // Some embedded webviews need a "kick" to start autoplay even when muted
-    window.addEventListener('load', async () => {
-      try { await bg.play(); } catch(e) { /* ignore */ }
+    function formatDate(d){
+      try {
+        return new Intl.DateTimeFormat(undefined,{weekday:'long',month:'long',day:'numeric'}).format(d);
+      } catch {
+        return d.toDateString();
+      }
+    }
+
+    function tick(){
+      const now=new Date();
+      elTime.textContent=formatTime(now);
+      elDate.textContent=formatDate(now);
+    }
+    tick();
+    setInterval(tick,1000);
+
+    function fallback(reason){
+      bg.classList.add('video-hidden');
+      showBadge(reason);
+    }
+
+    bg.addEventListener('error',()=>fallback('Video failed'));
+    bg.addEventListener('abort',()=>fallback('Video aborted'));
+    bg.addEventListener('playing',hideBadge);
+
+    async function tryPlay(){
+      try{ await bg.play(); }
+      catch{ fallback('Autoplay blocked'); }
+    }
+
+    window.addEventListener('load',()=>{
+      tryPlay();
+      setTimeout(tryPlay,800);
     });
 
-    // Tap to toggle frosted plate
-    const hud = document.getElementById('hud');
-    hud.addEventListener('click', () => {
-      const root = document.documentElement;
-      const current = getComputedStyle(root).getPropertyValue('--plate').trim();
-      const off = 'rgba(0, 0, 0, 0)';
-      const on  = 'rgba(0,0,0,.10)';
-      root.style.setProperty('--plate', (current === off ? on : off));
-      root.style.setProperty('--plate-border', (current === off ? 'rgba(255,255,255,.10)' : 'rgba(255, 255, 255, 0)'));
-      root.style.setProperty('--plate-pad-x', (current === off ? '18px' : '0px'));
-      root.style.setProperty('--plate-pad-y', (current === off ? '14px' : '0px'));
-    }, {passive:true});
+    document.getElementById('hud').addEventListener('click',()=>{
+      const r=document.documentElement;
+      const off='rgba(0, 0, 0, 0)';
+      const on='rgba(0,0,0,.10)';
+      const cur=getComputedStyle(r).getPropertyValue('--plate').trim();
+      const t=cur===off;
+      r.style.setProperty('--plate',t?on:off);
+      r.style.setProperty('--plate-border',t?'rgba(255,255,255,.10)':'rgba(255,255,255,0)');
+      r.style.setProperty('--plate-pad-x',t?'18px':'0px');
+      r.style.setProperty('--plate-pad-y',t?'14px':'0px');
+    },{passive:true});
   </script>
 </body>
 </html>
