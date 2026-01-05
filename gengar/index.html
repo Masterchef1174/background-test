@@ -2,8 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+
+  <!-- Xenon Edge / embedded webviews behave better without viewport-fit=cover -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Allow embedding in widget/iframe contexts -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src * 'self' data: blob: 'unsafe-inline' 'unsafe-eval';
+                 media-src * data: blob:;
+                 img-src * data: blob:;
+                 style-src * 'self' 'unsafe-inline';
+                 script-src * 'self' 'unsafe-inline' 'unsafe-eval';
+                 frame-ancestors *;">
+
   <title>Gengar Clock</title>
+
   <style>
     :root{
       --time-size: 86px;
@@ -32,31 +45,47 @@
       --video-blur: 0px;
     }
 
-    html,body{
-      height:100%;
-      margin:0;
-      overflow:hidden;
-      background:#000;
+    /* Make the root sizing bulletproof for embedded webviews */
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+    }
+
+    /* Hard wrapper so "100%" always resolves correctly */
+    #widget {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
     }
 
     .stage{
-      position:absolute; inset:0;
-      width:100%; height:100%;
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       background: radial-gradient(1200px 800px at 30% 20%, #2a0f3a 0%, #000 55%, #000 100%);
     }
 
     /* Background video */
     video{
-      position:absolute; inset:0;
-      width:100%; height:100%;
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
       object-fit:cover;
       filter: brightness(var(--video-dim)) saturate(var(--video-sat)) contrast(var(--video-contrast)) blur(var(--video-blur));
       transform: scale(1.01);
       z-index: 0;
     }
 
-    /* Ensure overlay is always on top */
     .hud{
       position:absolute;
       left:var(--x);
@@ -72,10 +101,12 @@
       border-radius: var(--plate-radius);
       background: var(--plate);
       border: 1px solid var(--plate-border);
+
+      /* Backdrop filter can be flaky in widgets, so we keep it but it’s optional */
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
-      box-shadow: 0 10px 30px rgba(0,0,0,.22);
 
+      box-shadow: 0 10px 30px rgba(0,0,0,.22);
       user-select:none;
       touch-action: manipulation;
     }
@@ -101,7 +132,7 @@
       -webkit-text-stroke: 0.6px rgba(0,0,0,.25);
     }
 
-    /* Debug badge (only shown if video errors) */
+    /* Debug badge */
     .badge{
       position:absolute;
       right:12px;
@@ -116,24 +147,28 @@
       display:none;
     }
 
-    .safe{
-      padding-top: env(safe-area-inset-top);
-      padding-left: env(safe-area-inset-left);
+    /* Tiny fallback if the widget webview doesn't like backdrop-filter */
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .hud { background: rgba(0,0,0,.35); }
     }
   </style>
 </head>
+
 <body>
-  <div class="stage safe">
-    <video id="bg" autoplay muted loop playsinline preload="auto">
-      <source src="./gengar.mp4" type="video/mp4" />
-    </video>
+  <div id="widget">
+    <div class="stage">
+      <video id="bg" autoplay muted loop playsinline preload="auto">
+        <!-- If Xenon Edge has weird base paths, swap this to an ABSOLUTE URL -->
+        <source src="gengar.mp4" type="video/mp4" />
+      </video>
 
-    <div class="hud" id="hud" aria-label="Clock">
-      <div class="time" id="time">--:--</div>
-      <div class="date" id="date">---</div>
+      <div class="hud" id="hud" aria-label="Clock">
+        <div class="time" id="time">--:--</div>
+        <div class="date" id="date">---</div>
+      </div>
+
+      <div class="badge" id="badge">Video failed to load (gengar.mp4)</div>
     </div>
-
-    <div class="badge" id="badge">Video missing: gengar.mp4</div>
   </div>
 
   <script>
@@ -141,7 +176,6 @@
     const elDate = document.getElementById('date');
 
     function formatTime(d){
-      // Intl is great, but fallback just in case embedded browser is weird
       try {
         return new Intl.DateTimeFormat(undefined, { hour:'numeric', minute:'2-digit' }).format(d);
       } catch(e) {
@@ -165,14 +199,26 @@
       elTime.textContent = formatTime(now);
       elDate.textContent = formatDate(now);
     }
-
     tick();
     setInterval(tick, 1000);
 
-    // If video fails, show badge so you know it’s a file/hosting issue
     const bg = document.getElementById('bg');
     const badge = document.getElementById('badge');
-    bg.addEventListener('error', () => { badge.style.display = 'block'; });
+
+    function showBadge(msg){
+      badge.textContent = msg;
+      badge.style.display = 'block';
+    }
+
+    // Stronger video diagnostics for embedded webviews
+    bg.addEventListener('error', () => showBadge('Video failed to load (gengar.mp4)'));
+    bg.addEventListener('stalled', () => showBadge('Video stalled (network/webview)'));
+    bg.addEventListener('abort', () => showBadge('Video aborted'));
+
+    // Some embedded webviews need a "kick" to start autoplay even when muted
+    window.addEventListener('load', async () => {
+      try { await bg.play(); } catch(e) { /* ignore */ }
+    });
 
     // Tap to toggle frosted plate
     const hud = document.getElementById('hud');
@@ -180,7 +226,7 @@
       const root = document.documentElement;
       const current = getComputedStyle(root).getPropertyValue('--plate').trim();
       const off = 'rgba(0, 0, 0, 0)';
-      const on = 'rgba(0,0,0,.10)';
+      const on  = 'rgba(0,0,0,.10)';
       root.style.setProperty('--plate', (current === off ? on : off));
       root.style.setProperty('--plate-border', (current === off ? 'rgba(255,255,255,.10)' : 'rgba(255, 255, 255, 0)'));
       root.style.setProperty('--plate-pad-x', (current === off ? '18px' : '0px'));
