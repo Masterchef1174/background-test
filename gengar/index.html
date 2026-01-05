@@ -6,63 +6,68 @@
   <title>Gengar Clock</title>
   <style>
     :root{
-      /* Tweak these */
       --time-size: 86px;
       --date-size: 24px;
       --time-weight: 700;
       --date-weight: 600;
       --glow: 18px;
 
-      /* Position (percent of widget box) */
       --x: 8%;
       --y: 12%;
 
-      /* Text look */
       --text: rgba(255,255,255,.96);
       --shadow: rgba(0,0,0,.55);
       --stroke: rgba(0,0,0,.35);
       --stroke-w: 1.2px;
 
-      /* Optional frosted plate behind text */
       --plate: rgba(0,0,0,.10);
       --plate-border: rgba(255,255,255,.10);
       --plate-radius: 22px;
       --plate-pad-x: 18px;
       --plate-pad-y: 14px;
 
-      /* Video tweaks */
-      --video-dim: .98;   /* 1 = normal, <1 dims */
-      --video-sat: 1.05;  /* >1 boosts saturation */
+      --video-dim: .98;
+      --video-sat: 1.05;
       --video-contrast: 1.05;
-      --video-blur: 0px;  /* e.g. 1.5px if you want softer */
+      --video-blur: 0px;
     }
 
-    html,body{height:100%; margin:0; background:#000; overflow:hidden;}
-    .stage{
-      position:fixed; inset:0;
-      width:100vw; height:100vh;
+    html,body{
+      height:100%;
+      margin:0;
+      overflow:hidden;
       background:#000;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
     }
 
-    /* Full-bleed animated background */
+    .stage{
+      position:absolute; inset:0;
+      width:100%; height:100%;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 800px at 30% 20%, #2a0f3a 0%, #000 55%, #000 100%);
+    }
+
+    /* Background video */
     video{
       position:absolute; inset:0;
       width:100%; height:100%;
       object-fit:cover;
       filter: brightness(var(--video-dim)) saturate(var(--video-sat)) contrast(var(--video-contrast)) blur(var(--video-blur));
-      transform: scale(1.01); /* hide edges */
+      transform: scale(1.01);
+      z-index: 0;
     }
 
-    /* Clock overlay */
+    /* Ensure overlay is always on top */
     .hud{
       position:absolute;
       left:var(--x);
       top:var(--y);
+      z-index: 2;
+
       display:flex;
       flex-direction:column;
       gap:8px;
       align-items:flex-start;
+
       padding: var(--plate-pad-y) var(--plate-pad-x);
       border-radius: var(--plate-radius);
       background: var(--plate);
@@ -70,6 +75,7 @@
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       box-shadow: 0 10px 30px rgba(0,0,0,.22);
+
       user-select:none;
       touch-action: manipulation;
     }
@@ -85,6 +91,7 @@
         0 0 var(--glow) rgba(255,255,255,.14);
       -webkit-text-stroke: var(--stroke-w) var(--stroke);
     }
+
     .date{
       font-size:var(--date-size);
       font-weight:var(--date-weight);
@@ -94,7 +101,21 @@
       -webkit-text-stroke: 0.6px rgba(0,0,0,.25);
     }
 
-    /* Safe-area padding for notches (harmless on Xeneon Edge, helpful elsewhere) */
+    /* Debug badge (only shown if video errors) */
+    .badge{
+      position:absolute;
+      right:12px;
+      bottom:12px;
+      z-index: 3;
+      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.18);
+      color: rgba(255,255,255,.9);
+      display:none;
+    }
+
     .safe{
       padding-top: env(safe-area-inset-top);
       padding-left: env(safe-area-inset-left);
@@ -103,51 +124,67 @@
 </head>
 <body>
   <div class="stage safe">
-    <!-- Put gengar.mp4 next to this HTML file (same folder) -->
-    <video autoplay muted loop playsinline preload="auto">
-      <source src="gengar.mp4" type="video/mp4" />
+    <video id="bg" autoplay muted loop playsinline preload="auto">
+      <source src="./gengar.mp4" type="video/mp4" />
     </video>
 
     <div class="hud" id="hud" aria-label="Clock">
       <div class="time" id="time">--:--</div>
       <div class="date" id="date">---</div>
     </div>
+
+    <div class="badge" id="badge">Video missing: gengar.mp4</div>
   </div>
 
   <script>
     const elTime = document.getElementById('time');
     const elDate = document.getElementById('date');
 
-    // Format like iOS lock screen: big time, then date.
-    const fmtTime = new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit'
-    });
+    function formatTime(d){
+      // Intl is great, but fallback just in case embedded browser is weird
+      try {
+        return new Intl.DateTimeFormat(undefined, { hour:'numeric', minute:'2-digit' }).format(d);
+      } catch(e) {
+        let h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12; if (h === 0) h = 12;
+        return `${h}:${m} ${ampm}`;
+      }
+    }
 
-    const fmtDate = new Intl.DateTimeFormat(undefined, {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric'
-    });
+    function formatDate(d){
+      try {
+        return new Intl.DateTimeFormat(undefined, { weekday:'long', month:'long', day:'numeric' }).format(d);
+      } catch(e) {
+        return d.toDateString();
+      }
+    }
 
     function tick(){
       const now = new Date();
-      elTime.textContent = fmtTime.format(now);
-      elDate.textContent = fmtDate.format(now);
+      elTime.textContent = formatTime(now);
+      elDate.textContent = formatDate(now);
     }
 
     tick();
     setInterval(tick, 1000);
 
-    // Optional: tap to toggle the frosted plate (nice for busy frames)
+    // If video fails, show badge so you know it’s a file/hosting issue
+    const bg = document.getElementById('bg');
+    const badge = document.getElementById('badge');
+    bg.addEventListener('error', () => { badge.style.display = 'block'; });
+
+    // Tap to toggle frosted plate
     const hud = document.getElementById('hud');
     hud.addEventListener('click', () => {
       const root = document.documentElement;
       const current = getComputedStyle(root).getPropertyValue('--plate').trim();
-      root.style.setProperty('--plate', (current === 'rgba(0, 0, 0, 0)' ? 'rgba(0,0,0,.10)' : 'rgba(0, 0, 0, 0)'));
-      root.style.setProperty('--plate-border', (current === 'rgba(0, 0, 0, 0)' ? 'rgba(255,255,255,.10)' : 'rgba(255, 255, 255, 0)'));
-      root.style.setProperty('--plate-pad-x', (current === 'rgba(0, 0, 0, 0)' ? '18px' : '0px'));
-      root.style.setProperty('--plate-pad-y', (current === 'rgba(0, 0, 0, 0)' ? '14px' : '0px'));
+      const off = 'rgba(0, 0, 0, 0)';
+      const on = 'rgba(0,0,0,.10)';
+      root.style.setProperty('--plate', (current === off ? on : off));
+      root.style.setProperty('--plate-border', (current === off ? 'rgba(255,255,255,.10)' : 'rgba(255, 255, 255, 0)'));
+      root.style.setProperty('--plate-pad-x', (current === off ? '18px' : '0px'));
+      root.style.setProperty('--plate-pad-y', (current === off ? '14px' : '0px'));
     }, {passive:true});
   </script>
 </body>
